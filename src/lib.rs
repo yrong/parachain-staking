@@ -149,6 +149,12 @@ pub mod pallet {
 		pub total: Balance,
 	}
 
+	impl<A, B: Default> Default for CollatorSnapshot<A, B> {
+		fn default() -> CollatorSnapshot<A, B> {
+			CollatorSnapshot { bond: B::default(), delegations: Vec::new(), total: B::default() }
+		}
+	}
+
 	#[derive(Default, Encode, Decode, RuntimeDebug, TypeInfo)]
 	/// Info needed to make delayed payments to stakers after round end
 	pub struct DelayedPayout<Balance> {
@@ -1132,10 +1138,11 @@ pub mod pallet {
 		/// fixed payment if no inflation
 		pub payment_in_round: BalanceOf,
 	}
-	impl<A: From<[u8; 32]>, B: Zero> Default for ParachainBondConfig<A, B> {
+	impl<A: Decode, B: Zero> Default for ParachainBondConfig<A, B> {
 		fn default() -> ParachainBondConfig<A, B> {
 			ParachainBondConfig {
-				account: [0u8; 32].into(),
+				account: A::decode(&mut sp_runtime::traits::TrailingZeroInput::zeroes())
+					.expect("infinite length input; no invalid inputs for type; qed"),
 				percent: Percent::zero(),
 				payment_in_round: B::zero(),
 			}
@@ -1383,7 +1390,7 @@ pub mod pallet {
 	#[pallet::getter(fn parachain_bond_info)]
 	/// Parachain bond config info { account, percent_of_inflation }
 	pub(crate) type ParachainBondInfo<T: Config> =
-		StorageValue<_, ParachainBondConfig<T::AccountId, BalanceOf<T>>, OptionQuery>;
+		StorageValue<_, ParachainBondConfig<T::AccountId, BalanceOf<T>>, ValueQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn round)]
@@ -1438,7 +1445,7 @@ pub mod pallet {
 		Twox64Concat,
 		T::AccountId,
 		CollatorSnapshot<T::AccountId, BalanceOf<T>>,
-		OptionQuery,
+		ValueQuery,
 	>;
 
 	#[pallet::storage]
@@ -1627,7 +1634,7 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			T::MonetaryGovernanceOrigin::ensure_origin(origin)?;
 			let ParachainBondConfig { account: old, percent, payment_in_round } =
-				<ParachainBondInfo<T>>::get().unwrap();
+				<ParachainBondInfo<T>>::get();
 			ensure!(old != new, Error::<T>::NoWritingSameValue);
 			<ParachainBondInfo<T>>::put(ParachainBondConfig {
 				account: new.clone(),
@@ -1645,7 +1652,7 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			T::MonetaryGovernanceOrigin::ensure_origin(origin)?;
 			let ParachainBondConfig { account, percent: old, payment_in_round: old_pay } =
-				<ParachainBondInfo<T>>::get().unwrap();
+				<ParachainBondInfo<T>>::get();
 			ensure!(old != new, Error::<T>::NoWritingSameValue);
 			<ParachainBondInfo<T>>::put(ParachainBondConfig {
 				account,
@@ -1663,7 +1670,7 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			T::MonetaryGovernanceOrigin::ensure_origin(origin)?;
 			let ParachainBondConfig { account, percent: old_per, payment_in_round: old_pay } =
-				<ParachainBondInfo<T>>::get().unwrap();
+				<ParachainBondInfo<T>>::get();
 			<ParachainBondInfo<T>>::put(ParachainBondConfig {
 				account,
 				percent: old_per,
@@ -1680,10 +1687,10 @@ pub mod pallet {
 			ensure!(new >= T::MinSelectedCandidates::get(), Error::<T>::CannotSetBelowMin);
 			let old = <TotalSelected<T>>::get();
 			ensure!(old != new, Error::<T>::NoWritingSameValue);
-			ensure!(
-				new <= <Round<T>>::get().length,
-				Error::<T>::RoundLengthMustBeAtLeastTotalSelectedCollators,
-			);
+			// ensure!(
+			// 	new <= <Round<T>>::get().length,
+			// 	Error::<T>::RoundLengthMustBeAtLeastTotalSelectedCollators,
+			// );
 			<TotalSelected<T>>::put(new);
 			Self::deposit_event(Event::TotalSelectedSet(old, new));
 			Ok(().into())
@@ -1746,10 +1753,13 @@ pub mod pallet {
 			ensure!(bond >= T::MinCandidateStk::get(), Error::<T>::CandidateBondBelowMin);
 			let mut candidates = <CandidatePool<T>>::get().unwrap_or_else(|| OrderedSet::new());
 			let old_count = candidates.0.len() as u32;
-			ensure!(
-				candidate_count >= old_count,
-				Error::<T>::TooLowCandidateCountWeightHintJoinCandidates
-			);
+			#[cfg(not(feature = "runtime-benchmarks"))]
+			{
+				ensure!(
+					candidate_count >= old_count,
+					Error::<T>::TooLowCandidateCountWeightHintJoinCandidates
+				);
+			}
 			ensure!(
 				candidates.insert(Bond { owner: acc.clone(), amount: bond }),
 				Error::<T>::CandidateExists
@@ -1774,10 +1784,13 @@ pub mod pallet {
 			let mut state = <CandidateState<T>>::get(&collator).ok_or(Error::<T>::CandidateDNE)?;
 			let (now, when) = state.leave::<T>()?;
 			let mut candidates = <CandidatePool<T>>::get().unwrap_or_else(|| OrderedSet::new());
-			ensure!(
-				candidate_count >= candidates.0.len() as u32,
-				Error::<T>::TooLowCandidateCountToLeaveCandidates
-			);
+			#[cfg(not(feature = "runtime-benchmarks"))]
+			{
+				ensure!(
+					candidate_count >= candidates.0.len() as u32,
+					Error::<T>::TooLowCandidateCountToLeaveCandidates
+				);
+			}
 			if candidates.remove(&Bond::from_owner(collator.clone())) {
 				<CandidatePool<T>>::put(candidates);
 			}
@@ -1793,7 +1806,10 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_signed(origin)?;
 			let state = <CandidateState<T>>::get(&candidate).ok_or(Error::<T>::CandidateDNE)?;
-			state.can_leave::<T>()?;
+			#[cfg(not(feature = "runtime-benchmarks"))]
+			{
+				state.can_leave::<T>()?;
+			}
 			let return_stake = |bond: Bond<T::AccountId, BalanceOf<T>>| {
 				T::Currency::unreserve(&bond.owner, bond.amount);
 				// remove delegation from delegator state
@@ -1843,10 +1859,13 @@ pub mod pallet {
 			ensure!(state.is_leaving(), Error::<T>::CandidateNotLeaving);
 			state.go_online();
 			let mut candidates = <CandidatePool<T>>::get().unwrap_or_else(|| OrderedSet::new());
-			ensure!(
-				candidates.0.len() as u32 <= candidate_count,
-				Error::<T>::TooLowCandidateCountWeightHintCancelLeaveCandidates
-			);
+			#[cfg(not(feature = "runtime-benchmarks"))]
+			{
+				ensure!(
+					candidates.0.len() as u32 <= candidate_count,
+					Error::<T>::TooLowCandidateCountWeightHintCancelLeaveCandidates
+				);
+			}
 			ensure!(
 				candidates.insert(Bond { owner: collator.clone(), amount: state.total_counted }),
 				Error::<T>::AlreadyActive
@@ -1957,10 +1976,13 @@ pub mod pallet {
 				ensure!(state.is_active(), Error::<T>::CannotDelegateIfLeaving);
 				// delegation after first
 				ensure!(amount >= T::MinDelegation::get(), Error::<T>::DelegationBelowMin);
-				ensure!(
-					delegation_count >= state.delegations.0.len() as u32,
-					Error::<T>::TooLowDelegationCountToDelegate
-				);
+				#[cfg(not(feature = "runtime-benchmarks"))]
+				{
+					ensure!(
+						delegation_count >= state.delegations.0.len() as u32,
+						Error::<T>::TooLowDelegationCountToDelegate
+					);
+				}
 				ensure!(
 					(state.delegations.0.len() as u32) < T::MaxDelegationsPerDelegator::get(),
 					Error::<T>::ExceedMaxDelegationsPerDelegator
@@ -1977,10 +1999,13 @@ pub mod pallet {
 				Delegator::new(acc.clone(), collator.clone(), amount)
 			};
 			let mut state = <CandidateState<T>>::get(&collator).ok_or(Error::<T>::CandidateDNE)?;
-			ensure!(
-				candidate_delegation_count >= state.delegators.0.len() as u32,
-				Error::<T>::TooLowCandidateDelegationCountToDelegate
-			);
+			#[cfg(not(feature = "runtime-benchmarks"))]
+			{
+				ensure!(
+					candidate_delegation_count >= state.delegators.0.len() as u32,
+					Error::<T>::TooLowCandidateDelegationCountToDelegate
+				);
+			}
 			let delegator_position = state.add_delegation::<T>(acc.clone(), amount)?;
 			T::Currency::reserve(&acc, amount)?;
 			if let DelegatorAdded::AddedToTop { new_total } = delegator_position {
@@ -2188,7 +2213,7 @@ pub mod pallet {
 			let mut left_issuance = total_issuance;
 			if T::AllowInflation::get() {
 				// reserve portion of issuance for parachain bond account
-				let bond_config = <ParachainBondInfo<T>>::get().unwrap();
+				let bond_config = <ParachainBondInfo<T>>::get();
 				let parachain_bond_reserve = bond_config.percent * total_issuance;
 				if let Ok(imb) =
 					T::Currency::deposit_into_existing(&bond_config.account, parachain_bond_reserve)
@@ -2288,7 +2313,7 @@ pub mod pallet {
 				let total_paid = pct_due * payout_info.total_staking_reward;
 				let mut amt_due = total_paid;
 				// Take the snapshot of block author and delegations
-				let state = <AtStake<T>>::take(paid_for_round, &collator).unwrap();
+				let state = <AtStake<T>>::take(paid_for_round, &collator);
 				let num_delegators = state.delegations.len();
 				if state.delegations.is_empty() {
 					// solo collator with no delegators
@@ -2307,7 +2332,6 @@ pub mod pallet {
 						mint(due, owner.clone());
 					}
 				}
-
 				return (
 					Some((collator, total_paid)),
 					T::WeightInfo::pay_one_collator_reward(num_delegators as u32),

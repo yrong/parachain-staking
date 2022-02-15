@@ -55,6 +55,7 @@ pub trait WeightInfo {
 	fn set_inflation() -> Weight;
 	fn set_parachain_bond_account() -> Weight;
 	fn set_parachain_bond_reserve_percent() -> Weight;
+	fn set_parachain_bond_reserve_payment() -> Weight;
 	fn set_total_selected() -> Weight;
 	fn set_collator_commission() -> Weight;
 	fn set_blocks_per_round() -> Weight;
@@ -103,6 +104,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(3 as Weight))
 	}
 	fn set_parachain_bond_reserve_percent() -> Weight {
+		(19_239_000 as Weight)
+			.saturating_add(T::DbWeight::get().reads(5 as Weight))
+			.saturating_add(T::DbWeight::get().writes(3 as Weight))
+	}
+	fn set_parachain_bond_reserve_payment() -> Weight {
 		(19_239_000 as Weight)
 			.saturating_add(T::DbWeight::get().reads(5 as Weight))
 			.saturating_add(T::DbWeight::get().writes(3 as Weight))
@@ -279,6 +285,11 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(3 as Weight))
 	}
 	fn set_parachain_bond_reserve_percent() -> Weight {
+		(19_239_000 as Weight)
+			.saturating_add(RocksDbWeight::get().reads(5 as Weight))
+			.saturating_add(RocksDbWeight::get().writes(3 as Weight))
+	}
+	fn set_parachain_bond_reserve_payment() -> Weight {
 		(19_239_000 as Weight)
 			.saturating_add(RocksDbWeight::get().reads(5 as Weight))
 			.saturating_add(RocksDbWeight::get().writes(3 as Weight))

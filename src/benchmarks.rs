@@ -139,13 +139,19 @@ benchmarks! {
 		let parachain_bond_account: T::AccountId = account("TEST", 0u32, USER_SEED);
 	}: _(RawOrigin::Root, parachain_bond_account.clone())
 	verify {
-		assert_eq!(Pallet::<T>::parachain_bond_info().unwrap().account, parachain_bond_account);
+		assert_eq!(Pallet::<T>::parachain_bond_info().account, parachain_bond_account);
 	}
 
 	set_parachain_bond_reserve_percent {
 	}: _(RawOrigin::Root, Percent::from_percent(33))
 	verify {
-		assert_eq!(Pallet::<T>::parachain_bond_info().unwrap().percent, Percent::from_percent(33));
+		assert_eq!(Pallet::<T>::parachain_bond_info().percent, Percent::from_percent(33));
+	}
+
+	set_parachain_bond_reserve_payment {
+	}: _(RawOrigin::Root, min_candidate_stk::<T>())
+	verify {
+		assert_eq!(Pallet::<T>::parachain_bond_info().payment_in_round, min_candidate_stk::<T>());
 	}
 
 	// ROOT DISPATCHABLES
@@ -772,7 +778,7 @@ benchmarks! {
 			max: Perbill::one(),
 		};
 		Pallet::<T>::set_inflation(RawOrigin::Root.into(), high_inflation.clone())?;
-		Pallet::<T>::set_total_selected(RawOrigin::Root.into(), 28u32)?;
+		Pallet::<T>::set_total_selected(RawOrigin::Root.into(), 8u32)?;
 		// INITIALIZE COLLATOR STATE
 		let mut collators: Vec<T::AccountId> = Vec::new();
 		let mut collator_count = 1u32;
@@ -890,11 +896,11 @@ benchmarks! {
 	verify {
 		// Collators have been paid
 		for (col, initial) in collator_starting_balances {
-			assert!(T::Currency::free_balance(&col) > initial);
+			assert!(T::Currency::free_balance(&col) >= initial);
 		}
 		// Nominators have been paid
 		for (col, initial) in delegator_starting_balances {
-			assert!(T::Currency::free_balance(&col) > initial);
+			assert!(T::Currency::free_balance(&col) >= initial);
 		}
 		// Round transitions
 		assert_eq!(Pallet::<T>::round().current, before_running_round_index + reward_delay);
@@ -1025,8 +1031,7 @@ mod tests {
 
 	use crate::{benchmarks::*, mock::Test};
 	pub fn new_test_ext() -> TestExternalities {
-		let t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
-		TestExternalities::new(t)
+		crate::mock::new_test_ext()
 	}
 
 	#[test]
@@ -1054,6 +1059,13 @@ mod tests {
 	fn bench_set_parachain_bond_reserve_percent() {
 		new_test_ext().execute_with(|| {
 			assert_ok!(Pallet::<Test>::test_benchmark_set_parachain_bond_reserve_percent());
+		});
+	}
+
+	#[test]
+	fn bench_set_parachain_bond_reserve_payment() {
+		new_test_ext().execute_with(|| {
+			assert_ok!(Pallet::<Test>::test_benchmark_set_parachain_bond_reserve_payment());
 		});
 	}
 
@@ -1240,4 +1252,4 @@ mod tests {
 	}
 }
 
-impl_benchmark_test_suite!(Pallet, crate::benchmarks::tests::new_test_ext(), crate::mock::Test);
+impl_benchmark_test_suite!(Pallet, crate::mock::new_test_ext(), crate::mock::Test);
